@@ -354,7 +354,7 @@ export default function Tabletop() {
     setIsAnalyzing(true);
     setAiReasoning("AI is analyzing map details & aligning... Please wait.");
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/analyze-map`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? 'https://subversion.ai.studio' : '')}/api/analyze-map`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
