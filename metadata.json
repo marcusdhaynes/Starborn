@@ -1,0 +1,6 @@
+{
+  "name": "Gothic Character Sheet",
+  "description": "A high-fidelity, gothic-themed D&D character sheet with a starry aesthetic.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

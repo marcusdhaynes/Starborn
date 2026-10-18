@@ -1,0 +1,133 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Default-deny Catch-all Security Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Primitives and Helper Functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidRPGTable(data) {
+      return data.userId is string 
+        && data.userId == request.auth.uid
+        && data.tabName is string 
+        && data.columns is list
+        && data.rows is list;
+    }
+
+    function isValidRPGSettings(data) {
+      return data.userId is string 
+        && data.userId.size() <= 128
+        && data.type is string 
+        && data.type.size() <= 64
+        && data.payload is map;
+    }
+
+    function isValidRPGItem(data) {
+      return data.userId is string 
+        && data.userId.size() <= 128
+        && data.itemId is string 
+        && data.itemId.size() <= 128
+        && data.name is string 
+        && data.name.size() <= 128
+        && data.state is string 
+        && data.state.size() <= 128;
+    }
+
+    // Connectivity verification test endpoint
+    match /test/{docId} {
+      allow read: if true;
+    }
+
+    // User Profile / Root Document
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // 3. Fortress Match Blocks for RPG Custom Tables
+    match /users/{userId}/tables/{tableId} {
+      allow read: if isOwner(userId);
+      
+      allow create: if isOwner(userId) 
+        && isValidId(tableId) 
+        && isValidRPGTable(incoming())
+        && incoming().userId == userId
+        && incoming().updatedAt is string
+        && incoming().updatedAt.size() <= 64;
+        
+      allow update: if isOwner(userId)
+        && isValidRPGTable(incoming())
+        && incoming().userId == userId
+        && (!('userId' in existing()) || incoming().userId == existing().userId)
+        && incoming().updatedAt is string
+        && incoming().updatedAt.size() <= 64;
+        
+      allow delete: if isOwner(userId);
+    }
+
+    // 4. Fortress Match Blocks for User Settings and Character Info
+    match /users/{userId}/settings/{settingId} {
+      allow read: if isOwner(userId);
+      
+      allow create: if isOwner(userId) 
+        && isValidId(settingId) 
+        && isValidRPGSettings(incoming())
+        && incoming().userId == userId
+        && incoming().updatedAt is string
+        && incoming().updatedAt.size() <= 64;
+        
+      allow update: if isOwner(userId)
+        && isValidRPGSettings(incoming())
+        && incoming().userId == userId
+        && (!('userId' in existing()) || incoming().userId == existing().userId)
+        && (!('type' in existing()) || incoming().type == existing().type)
+        && incoming().updatedAt is string
+        && incoming().updatedAt.size() <= 64;
+        
+      allow delete: if isOwner(userId);
+    }
+
+    // 5. Fortress Match Blocks for RPG Custom Items
+    match /users/{userId}/items/{itemId} {
+      allow read: if isOwner(userId);
+      
+      allow create: if isOwner(userId) 
+        && isValidId(itemId) 
+        && isValidRPGItem(incoming())
+        && incoming().userId == userId
+        && incoming().updatedAt is string
+        && incoming().updatedAt.size() <= 64;
+        
+      allow update: if isOwner(userId)
+        && isValidRPGItem(incoming())
+        && incoming().userId == userId
+        && (!('userId' in existing()) || incoming().userId == existing().userId)
+        && (!('itemId' in existing()) || incoming().itemId == existing().itemId)
+        && incoming().updatedAt is string
+        && incoming().updatedAt.size() <= 64;
+        
+      allow delete: if isOwner(userId);
+    }
+  }
+}

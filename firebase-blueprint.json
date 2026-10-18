@@ -1,0 +1,157 @@
+{
+  "entities": {
+    "RPGTable": {
+      "title": "RPG Custom Tab Table",
+      "description": "Custom tables for RPG stats and items including Compendium, Weapons, Inventory, Magic, and Journal.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The firebase auth user ID of the owner of this table."
+        },
+        "tabName": {
+          "type": "string",
+          "description": "Name of the RPG tab (e.g., Compendium, Weapons, Inventory, Magic, Journal)"
+        },
+        "columns": {
+          "type": "array",
+          "description": "List of columns in this table with header names or ids."
+        },
+        "rows": {
+          "type": "array",
+          "description": "The rows of the table where keys map to the column definitions."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this table was last saved."
+        }
+      },
+      "required": ["userId", "tabName", "columns", "rows", "updatedAt"]
+    },
+    "RPGSettings": {
+      "title": "RPG User Settings and State",
+      "description": "General settings, character details, tabletop positions, or custom spells for the authenticated user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The firebase auth user ID of the owner of this configuration document."
+        },
+        "type": {
+          "type": "string",
+          "description": "The setting category types (e.g., character, preferences, tabletop)."
+        },
+        "payload": {
+          "type": "object",
+          "description": "The serialized key-value structure of the settings, stats, or logs."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this configuration document was last saved."
+        }
+      },
+      "required": ["userId", "type", "payload", "updatedAt"]
+    },
+    "RPGItem": {
+      "title": "RPG Item Definition",
+      "description": "Custom or standard VTT items stored securely with exact stats and effects under the user's document.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The owner of the item."
+        },
+        "itemId": {
+          "type": "string",
+          "description": "Unique identifier for this item instance."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the item."
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Brief description or secondary details."
+        },
+        "icon": {
+          "type": "string",
+          "description": "Visual indicator emoji or representation."
+        },
+        "state": {
+          "type": "string",
+          "description": "Active state (e.g., READY, EMPTY, EQUIPPED)."
+        },
+        "power": {
+          "type": "string",
+          "description": "Power rating or roll formula."
+        },
+        "perditor": {
+          "type": "string",
+          "description": "Item decay or modifier rating."
+        },
+        "virtus": {
+          "type": "string",
+          "description": "Virtue requirement or stat addition."
+        },
+        "cost": {
+          "type": "string",
+          "description": "Usage or spell slot cost."
+        },
+        "nature": {
+          "type": "string",
+          "description": "Elementary nature (e.g., HEAL, PHYS, MAGIC)."
+        },
+        "effect": {
+          "type": "string",
+          "description": "In-game clinical effect description."
+        },
+        "focus": {
+          "type": "string",
+          "description": "Targeting focus classification."
+        },
+        "terminus": {
+          "type": "string",
+          "description": "Duration/terminal condition."
+        },
+        "rarity": {
+          "type": "string",
+          "description": "Item classification rarity."
+        },
+        "quantity": {
+          "type": "integer",
+          "description": "Amount of the item currently owned."
+        },
+        "category": {
+          "type": "string",
+          "description": "Category of the item (e.g., weapons, utility, gear)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this item was last modified."
+        }
+      },
+      "required": ["userId", "itemId", "name", "state", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "RPGSettings",
+      "description": "User root document containing user profile and ownership anchor."
+    },
+    "/users/{userId}/tables/{tableId}": {
+      "schema": "RPGTable",
+      "description": "A customized RPG grid table for the authenticated user, saved under their distinct userId."
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": "RPGSettings",
+      "description": "User-scoped configurations containing character sheet details, app preferences, and tabletop states."
+    },
+    "/users/{userId}/items/{itemId}": {
+      "schema": "RPGItem",
+      "description": "Dedicated items database storing custom and pre-seeded weapon, slot, and inventory items for each user."
+    }
+  }
+}
