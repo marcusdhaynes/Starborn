@@ -207,7 +207,7 @@ export default function Tabletop() {
   const wasDraggingRef = useRef(false);
   
   // Synchronized global states.
-  const [isThrown, setIsThrown] = useState(() => safeStorage.getItem('tabletop_is_thrown') === 'true');
+  const [isThrown, setIsThrown] = useState(() => safeStorage.getItem('tabletop_is_thrown') !== 'false');
   const [appOpacity, setAppOpacity] = useState(() => {
     const saved = safeStorage.getItem('tabletop_app_opacity');
     return saved ? parseInt(saved, 10) : 100;
@@ -225,7 +225,7 @@ export default function Tabletop() {
   // Track state updates from other components
   useEffect(() => {
     const handleUpdate = () => {
-      setIsThrown(safeStorage.getItem('tabletop_is_thrown') === 'true');
+      setIsThrown(safeStorage.getItem('tabletop_is_thrown') !== 'false');
       const opacitySaved = safeStorage.getItem('tabletop_app_opacity');
       setAppOpacity(opacitySaved ? parseInt(opacitySaved, 10) : 100);
       const savedX = safeStorage.getItem('tabletop_avatar_x');
