@@ -283,7 +283,7 @@ export default function App() {
   };
 
   // Synchronized tabletop states
-  const [isThrown, setIsThrown] = useState(() => safeStorage.getItem('tabletop_is_thrown') === 'true');
+  const [isThrown, setIsThrown] = useState(() => safeStorage.getItem('tabletop_is_thrown') !== 'false');
   const [bgOpacity, setBgOpacity] = useState(() => {
     const saved = safeStorage.getItem('tabletop_app_opacity');
     return saved ? parseInt(saved, 10) : 100;
@@ -312,7 +312,7 @@ export default function App() {
   // Keep state synced up from window and storage events
   useEffect(() => {
     const handleUpdate = () => {
-      setIsThrown(safeStorage.getItem('tabletop_is_thrown') === 'true');
+      setIsThrown(safeStorage.getItem('tabletop_is_thrown') !== 'false');
       const opacitySaved = safeStorage.getItem('tabletop_app_opacity');
       setBgOpacity(opacitySaved ? parseInt(opacitySaved, 10) : 100);
       

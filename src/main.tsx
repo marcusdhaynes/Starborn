@@ -81,6 +81,18 @@ if (typeof document !== 'undefined') {
   });
 }
 
+// Startup change (Nov 2026): the app now opens directly on the main game
+// menu (the tabletop view) instead of the 3x3 character-sheet screen.
+// One-time migration, run synchronously before first paint so there is no
+// flash of the old startup screen: if this profile has never been migrated,
+// mark the tabletop as thrown and record the migration. Afterwards the
+// stored value is respected, so "Retrieve Map" (back to the sheet) keeps
+// working and persists across reloads.
+if (safeStorage.getItem('startup_main_menu_migrated') !== 'true') {
+  safeStorage.setItem('tabletop_is_thrown', 'true');
+  safeStorage.setItem('startup_main_menu_migrated', 'true');
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
