@@ -16,6 +16,7 @@ import { safeStorage } from './storage';
 import SettingsWindow from './99_settings/01_settings';
 import { useTranslation } from './99_settings/language';
 import CharacterCodexModal from './components/CharacterCodexModal';
+import GameSyncRoot from './04_sync/GameSyncRoot'; // Game Sync (GM + players, real-time) — START-OF-SYNC-INTEGRATION, 2 lines total
 
 export default function App() {
   const { lang } = useTranslation();
@@ -1448,6 +1449,9 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+
+      {/* Game Sync (GM + players, real-time) — START-OF-SYNC-INTEGRATION */}
+      <GameSyncRoot />
 
       {/* Character Codex Overlay */}
       <AnimatePresence>

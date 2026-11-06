@@ -220,6 +220,33 @@ function debouncedCloudSave(userId: string, type: 'character' | 'preferences' | 
   }, 1200); // 1.2s debounce
 }
 
+// Raw key listing / reading (no character namespacing applied — keys are
+// returned exactly as stored). Used by Game Sync per-game snapshots so a
+// snapshot also works when localStorage is blocked and safeStorage is
+// running on its in-memory fallback.
+export function listStoredKeys(): string[] {
+  const keys = new Set<string>(Object.keys(memoryStorage));
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i);
+        if (k) keys.add(k);
+      }
+    }
+  } catch (e) {}
+  return [...keys];
+}
+
+export function readStoredValue(key: string): string | null {
+  if (key in memoryStorage) return memoryStorage[key];
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage.getItem(key);
+    }
+  } catch (e) {}
+  return null;
+}
+
 export const safeStorage = {
   getItem(key: string): string | null {
     const nsKey = getNamespacedKey(key);
