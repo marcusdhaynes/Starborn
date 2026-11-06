@@ -3,6 +3,15 @@ import { createPortal } from 'react-dom';
 import { ArrowUpDown, RotateCcw, Plus, Minus } from 'lucide-react';
 import { safeStorage } from '../storage';
 import { getActiveDiceZIndex, getActiveDiceShadowZIndex } from '../layers';
+import {
+  drawDie,
+  getDieTheme,
+  mostVisibleFace,
+  nearestHomeAngles,
+  orientationForFace,
+  prefersReducedMotion,
+  type DieSides,
+} from './dice3d';
 
 interface Particle {
   id: number;
@@ -31,6 +40,7 @@ interface DieInstance {
   height: number;
   vHeight: number;
   currentValue: number;
+  sides: number;
   targetValue?: number;
   landingFaceSelected: boolean;
   targetRotX: number;
@@ -41,88 +51,15 @@ interface DieInstance {
   isFading?: boolean;
 }
 
-// Map target face to standard rotation angles
-const getNearestCongruentAngles = (currentX: number, currentY: number, currentZ: number, face: number) => {
-  let baseRegX = 0, baseRegY = 0, baseRegZ = 0;
-  switch (face) {
-    case 1: baseRegX = 0; baseRegY = 0; baseRegZ = 0; break;      // Front
-    case 2: baseRegX = 0; baseRegY = -90; baseRegZ = 0; break;    // Face 2 (styled with rotateY(90deg) translateZ, needs cube rotY = -90 to face front)
-    case 3: baseRegX = 90; baseRegY = 0; baseRegZ = 0; break;     // Face 3 (styled with rotateX(-90deg) translateZ, needs cube rotX = 90 to face front)
-    case 4: baseRegX = -90; baseRegY = 0; baseRegZ = 0; break;    // Face 4 (styled with rotateX(90deg) translateZ, needs cube rotX = -90 to face front)
-    case 5: baseRegX = 0; baseRegY = 90; baseRegZ = 0; break;     // Face 5 (styled with rotateY(-90deg) translateZ, needs cube rotY = 90 to face front)
-    case 6: baseRegX = 0; baseRegY = 180; baseRegZ = 0; break;    // Back
-  }
-  
-  return {
-    x: Math.round((currentX - baseRegX) / 360) * 360 + baseRegX,
-    y: Math.round((currentY - baseRegY) / 360) * 360 + baseRegY,
-    z: Math.round((currentZ - baseRegZ) / 360) * 360 + baseRegZ,
-  };
-};
-
-// Map current angles to closest values congruent to the upright default (0, 0, 0)
-const getNearestHomeAngles = (currentX: number, currentY: number, currentZ: number) => {
-  const baseRegX = 0, baseRegY = 0, baseRegZ = 0;
-  return {
-    x: Math.round((currentX - baseRegX) / 360) * 360 + baseRegX,
-    y: Math.round((currentY - baseRegY) / 360) * 360 + baseRegY,
-    z: Math.round((currentZ - baseRegZ) / 360) * 360 + baseRegZ,
-  };
-};
-
-// Compute standard rotation and get Z component of a face normal vector
-const getZOfNormal = (normal: [number, number, number], rx: number, ry: number, rz: number) => {
-  const radX = rx * Math.PI / 180;
-  const radY = ry * Math.PI / 180;
-  const radZ = rz * Math.PI / 180;
-
-  const [x, y, z] = normal;
-
-  // 1. Rotate around Z:
-  const x1 = x * Math.cos(radZ) - y * Math.sin(radZ);
-  const y1 = x * Math.sin(radZ) + y * Math.cos(radZ);
-  const z1 = z;
-
-  // 2. Rotate around Y:
-  const x2 = x1 * Math.cos(radY) + z1 * Math.sin(radY);
-  const y2 = y1;
-  const z2 = -x1 * Math.sin(radY) + z1 * Math.cos(radY);
-
-  // 3. Rotate around X:
-  const z3 = y2 * Math.sin(radX) + z2 * Math.cos(radX);
-
-  return z3;
-};
-
-// Determine which face is pointing closest to the viewer
-const getMostVisibleFace = (rx: number, ry: number, rz: number): number => {
-  const faces = [
-    { id: 1, normal: [0, 0, 1] as [number, number, number] },
-    { id: 6, normal: [0, 0, -1] as [number, number, number] },
-    { id: 2, normal: [1, 0, 0] as [number, number, number] }, // Matches style rotateY(90deg)
-    { id: 5, normal: [-1, 0, 0] as [number, number, number] }, // Matches style rotateY(-90deg)
-    { id: 3, normal: [0, 1, 0] as [number, number, number] },
-    { id: 4, normal: [0, -1, 0] as [number, number, number] },
-  ];
-
-  let maxZ = -Infinity;
-  let bestFace = 1;
-
-  for (const face of faces) {
-    const zVal = getZOfNormal(face.normal, rx, ry, rz);
-    if (zVal > maxZ) {
-      maxZ = zVal;
-      bestFace = face.id;
-    }
-  }
-
-  return bestFace;
-};
 
 export default function DiceRoller() {
   const [diceTheme, setDiceTheme] = useState<string>(() => {
     return safeStorage.getItem('setting_dice_theme') || 'amber';
   });
+
+  // Theme ref for the animation loop (its closure would otherwise go stale).
+  const diceThemeRef = useRef(diceTheme);
+  diceThemeRef.current = diceTheme;
 
   useEffect(() => {
     const handleStorageUpdate = () => {
@@ -180,6 +117,10 @@ export default function DiceRoller() {
     modifier: number;
     numSides: number;
   } | null>(null);
+
+  // Sides of the most recent roll (6 for a manual dice-box roll). Reroll
+  // and Add re-roll the same kind of die the original roll used.
+  const lastRollSides = useRef<number>(6);
 
   // Dragging states and refs for secondary physical red reroll die throwing
   const isRerollDragging = useRef<boolean>(false);
@@ -253,6 +194,7 @@ export default function DiceRoller() {
       height: 0,
       vHeight: 0,
       currentValue: 6,
+      sides: 6,
       landingFaceSelected: false,
       targetRotX: 0,
       targetRotY: 0,
@@ -379,7 +321,12 @@ export default function DiceRoller() {
       vx.current = 0;
       vy.current = 0;
     }
-    
+
+    // Sides for this roll: remote rolls (spells, items, energy matrix)
+    // carry them in pendingRollInfo; a manual dice-box roll is a d6.
+    const sides = (pendingRollInfo.current?.numSides || 6) as DieSides;
+    lastRollSides.current = sides;
+
     // Support visual throwing of ALL tallyCount dice!
     // Since they fade out after 200ms, they won't cause performance/lag issues.
     const count = overrideCount !== undefined ? overrideCount : tallyCount;
@@ -430,9 +377,10 @@ export default function DiceRoller() {
       const dVHeight = Math.random() * 0.8 + 0.5;
       const dHeight = i === 0 ? height.current : (Math.random() * 0.5 + 0.5);
 
-      let finalValue = Math.floor(Math.random() * 6) + 1;
+      let finalValue = Math.floor(Math.random() * sides) + 1;
       if (overrideValues && overrideValues[i] !== undefined) {
-        finalValue = overrideValues[i];
+        // Values come from rollFormula for the same sides; clamp defensively.
+        finalValue = Math.max(1, Math.min(sides, overrideValues[i]));
       }
 
       const spawnX = overrideCount !== undefined ? 0 : x.current;
@@ -456,6 +404,7 @@ export default function DiceRoller() {
         height: i === 0 ? height.current : dHeight,
         vHeight: i === 0 ? vHeight.current : dVHeight,
         currentValue: finalValue,
+        sides,
         targetValue: finalValue,
         landingFaceSelected: false,
         targetRotX: 0,
@@ -492,6 +441,7 @@ export default function DiceRoller() {
           modifier: modifier || 0,
           numSides: sides || 6,
         };
+        lastRollSides.current = (sides || 6) as DieSides;
         triggerRollRef.current(0, 0, count || 1, values);
       }
     };
@@ -559,7 +509,7 @@ export default function DiceRoller() {
       const dVHeight = Math.random() * 0.8 + 0.5;
       const dHeight = Math.random() * 0.5 + 0.5;
 
-      const finalValue = Math.floor(Math.random() * 6) + 1;
+      const finalValue = Math.floor(Math.random() * lastRollSides.current) + 1;
 
       // Start position offset by where they dragged/grabbed the red die
       const startXVal = startOffsetX + (i > 0 ? (Math.random() - 0.5) * 20 : 0);
@@ -580,6 +530,7 @@ export default function DiceRoller() {
         height: dHeight,
         vHeight: dVHeight,
         currentValue: finalValue,
+        sides: lastRollSides.current as DieSides,
         targetValue: finalValue,
         landingFaceSelected: false,
         targetRotX: 0,
@@ -733,7 +684,7 @@ export default function DiceRoller() {
       const dVHeight = Math.random() * 0.8 + 0.5;
       const dHeight = Math.random() * 0.5 + 0.5;
 
-      const finalValue = Math.floor(Math.random() * 6) + 1;
+      const finalValue = Math.floor(Math.random() * lastRollSides.current) + 1;
 
       const startXVal = startOffsetX + (i > 0 ? (Math.random() - 0.5) * 20 : 0);
       const startYVal = startOffsetY + (i > 0 ? (Math.random() - 0.5) * 20 : 0);
@@ -753,6 +704,7 @@ export default function DiceRoller() {
         height: dHeight,
         vHeight: dVHeight,
         currentValue: finalValue,
+        sides: lastRollSides.current as DieSides,
         targetValue: finalValue,
         landingFaceSelected: false,
         targetRotX: 0,
@@ -894,7 +846,7 @@ export default function DiceRoller() {
           die.y += (0 - die.y) * homeK;
           die.height += (0 - die.height) * homeK;
 
-          const homeTargets = getNearestHomeAngles(die.rotX, die.rotY, die.rotZ);
+          const homeTargets = nearestHomeAngles({ x: die.rotX, y: die.rotY, z: die.rotZ });
           die.rotX += (homeTargets.x - die.rotX) * homeK;
           die.rotY += (homeTargets.y - die.rotY) * homeK;
           die.rotZ += (homeTargets.z - die.rotZ) * homeK;
@@ -921,6 +873,7 @@ export default function DiceRoller() {
             height: 0,
             vHeight: 0,
             currentValue: 6,
+            sides: 6,
             landingFaceSelected: false,
             targetRotX: 0,
             targetRotY: 0,
@@ -1079,7 +1032,7 @@ export default function DiceRoller() {
           } else if (speedTotal < 4.5 && die.height === 0) {
             if (!die.landingFaceSelected) {
               if (die.targetValue !== undefined) {
-                const targets = getNearestCongruentAngles(die.rotX, die.rotY, die.rotZ, die.targetValue);
+                const targets = orientationForFace(die.sides, die.targetValue, { x: die.rotX, y: die.rotY, z: die.rotZ });
                 die.targetRotX = targets.x;
                 die.targetRotY = targets.y;
                 die.targetRotZ = targets.z;
@@ -1091,7 +1044,7 @@ export default function DiceRoller() {
               die.landingFaceSelected = true;
             }
 
-            const blend = 1.0 - Math.pow(0.85, dt);
+            const blend = prefersReducedMotion() ? 1.0 : 1.0 - Math.pow(0.85, dt);
             die.rotX += (die.targetRotX - die.rotX) * blend;
             die.rotY += (die.targetRotY - die.rotY) * blend;
             die.rotZ += (die.targetRotZ - die.rotZ) * blend;
@@ -1102,9 +1055,9 @@ export default function DiceRoller() {
             die.vx *= Math.pow(0.82, dt);
             die.vy *= Math.pow(0.82, dt);
 
-            // ALWAYS update the physical currentValue of the die based on its exact 3D angle!
-            // This is critical for preventing mismatches!
-            const bestFace = getMostVisibleFace(die.rotX, die.rotY, die.rotZ);
+            // Track the face currently showing (display only — the
+            // recorded result comes from targetValue at settle time).
+            const bestFace = mostVisibleFace(die.sides, die.rotX, die.rotY, die.rotZ);
             die.currentValue = bestFace;
 
             const gapX = Math.abs(die.targetRotX - die.rotX);
@@ -1138,8 +1091,8 @@ export default function DiceRoller() {
             die.rotY += die.vRotY * dt;
             die.rotZ += die.vRotZ * dt;
 
-            // ALWAYS update the physical currentValue of the die based on its exact 3D angle!
-            const bestFace = getMostVisibleFace(die.rotX, die.rotY, die.rotZ);
+            // Track the face currently showing (display only).
+            const bestFace = mostVisibleFace(die.sides, die.rotX, die.rotY, die.rotZ);
             die.currentValue = bestFace;
           }
 
@@ -1165,9 +1118,11 @@ export default function DiceRoller() {
           if (allSettledTimestamp.current === null) {
             allSettledTimestamp.current = Date.now();
             
-            // Calculate final accurate rolls
+            // Calculate final accurate rolls. The recorded value is the
+            // one rollFormula generated (targetValue); the engine lands
+            // exactly on that face, so seen value == recorded value.
             const rolls = dicePhysics.current.map(d => {
-              const face = getMostVisibleFace(d.rotX, d.rotY, d.rotZ);
+              const face = d.targetValue ?? mostVisibleFace(d.sides, d.rotX, d.rotY, d.rotZ);
               d.currentValue = face;
               return face;
             });
@@ -1268,10 +1223,27 @@ export default function DiceRoller() {
         
         diceNode.style.left = `${coordsRef.current.x}px`;
         diceNode.style.top = `${coordsRef.current.y}px`;
-        diceNode.style.transform = `translate3d(${die.x}px, ${die.y}px, 0px) scale(${s}) rotateX(${die.rotX}deg) rotateY(${die.rotY}deg) rotateZ(${die.rotZ}deg)`;
+        diceNode.style.transform = `translate3d(${die.x}px, ${die.y}px, 0px) scale(${s})`;
         diceNode.style.opacity = `${currentOpacity}`;
         diceNode.style.display = currentOpacity === 0 ? 'none' : 'block';
         diceNode.style.pointerEvents = currentOpacity < 0.2 ? 'none' : 'auto';
+
+        // Draw the 3D die (rotation is rendered inside the canvas with
+        // true perspective; the wrapper only positions it). The number
+        // on the front face is the die's current value, which at rest
+        // equals the recorded roll.
+        const canvas = document.getElementById(`vtt-die-canvas-${die.id}`) as HTMLCanvasElement | null;
+        if (canvas) {
+          drawDie(canvas, {
+            sides: die.sides,
+            value: die.currentValue,
+            theme: getDieTheme(diceThemeRef.current),
+            rotX: die.rotX,
+            rotY: die.rotY,
+            rotZ: die.rotZ,
+            selected: isSelected,
+          });
+        }
       }
  
       if (shadowNode) {
@@ -1295,14 +1267,16 @@ export default function DiceRoller() {
   useEffect(() => {
     const handleNumberPress = (e: KeyboardEvent) => {
       if (isRolling) return;
+      // Number keys set a d6 face; other dice have no 1-6 shortcut.
+      if (dicePhysics.current[0]?.sides !== 6) return;
       if (['1', '2', '3', '4', '5', '6'].includes(e.key)) {
         const num = parseInt(e.key, 10);
         setHasNumber(true);
         setCurrentValue(num);
         setShowResults(true);
-        
+
         // Instant target rotations setting for first die
-        const targets = getNearestCongruentAngles(rotX.current, rotY.current, rotZ.current, num);
+        const targets = orientationForFace(6, num, { x: rotX.current, y: rotY.current, z: rotZ.current });
         rotX.current = targets.x;
         rotY.current = targets.y;
         rotZ.current = targets.z;
@@ -1490,6 +1464,10 @@ export default function DiceRoller() {
         vRotX.current = (Math.random() - 0.5) * 6;
         vRotY.current = (Math.random() - 0.5) * 6;
         vRotZ.current = (Math.random() - 0.5) * 4;
+        if (dicePhysics.current[0]) {
+          const dropSides = dicePhysics.current[0].sides || 6;
+          dicePhysics.current[0].targetValue = Math.floor(Math.random() * dropSides) + 1;
+        }
         playHitSound(120);
       }
       return;
@@ -1876,45 +1854,6 @@ export default function DiceRoller() {
             zIndex: getActiveDiceZIndex(menuBackdropActive),
           }}
         >
-          {/* Global SVG Gradients for high-fidelity interactive tabletop dice renderings - NO transparency */}
-          <svg className="absolute w-0 h-0 pointer-events-none" aria-hidden="true">
-            <defs>
-              {/* Magma / Fiery Amber */}
-              <linearGradient id="grad-active-amber" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#ef4444" stopOpacity="1" />
-                <stop offset="40%" stopColor="#f59e0b" stopOpacity="1" />
-                <stop offset="100%" stopColor="#450a0a" stopOpacity="1" />
-              </linearGradient>
-
-              {/* Cosmos / Celestial Nebula */}
-              <linearGradient id="grad-active-celestial" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#8b5cf6" stopOpacity="1" />
-                <stop offset="50%" stopColor="#4f46e5" stopOpacity="1" />
-                <stop offset="100%" stopColor="#0f172a" stopOpacity="1" />
-              </linearGradient>
-
-              {/* Water / Deep Sea Ripple */}
-              <linearGradient id="grad-active-water" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#1e3a8a" stopOpacity="1" />
-                <stop offset="50%" stopColor="#0284c7" stopOpacity="1" />
-                <stop offset="100%" stopColor="#0f172a" stopOpacity="1" />
-              </linearGradient>
-
-              {/* Diamond / Crimson Gemstone */}
-              <linearGradient id="grad-active-ruby" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#f43f5e" stopOpacity="1" />
-                <stop offset="60%" stopColor="#9f1239" stopOpacity="1" />
-                <stop offset="100%" stopColor="#4c0519" stopOpacity="1" />
-              </linearGradient>
-
-              {/* Emerald Crystalline */}
-              <linearGradient id="grad-active-emerald" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#34d399" stopOpacity="1" />
-                <stop offset="50%" stopColor="#059669" stopOpacity="1" />
-                <stop offset="100%" stopColor="#064e3b" stopOpacity="1" />
-              </linearGradient>
-            </defs>
-          </svg>
           
           {/* Custom flaming tail */}
           <svg className="absolute inset-0 pointer-events-none overflow-visible w-full h-full">
@@ -1936,23 +1875,7 @@ export default function DiceRoller() {
 
           {renderedDice.map(die => {
             const isDieTallyActive = isTallyActive && die.id === 0;
-            const isDieSelected = selectedRollIndexes.includes(die.id);
-
-            // Map themes to visual styles
-            const normalDiceStyle = themeStyles.normalDiceStyle;
-            const normalCornerDot = themeStyles.normalCornerDot;
             const hoverGlow = themeStyles.hoverGlow;
-
-            // Shadow the class names locally for selected dice
-            const bgBorderClass = isDieSelected
-              ? "bg-red-950/95 border-red-500 text-red-200 shadow-[inset_0_0_8px_rgba(239,68,68,0.5)] hover:border-red-400 shadow-[0_0_12px_rgba(239,68,68,0.45)]"
-              : (isDieTallyActive
-                  ? themeStyles.tallyStyle
-                  : normalDiceStyle);
-
-            const cornerDotClass = isDieSelected
-              ? "bg-red-400/30"
-              : (isDieTallyActive ? themeStyles.tallyCornerDot : normalCornerDot);
 
             const renderTallyBadge = isDieTallyActive && (
               <div className="absolute inset-0 flex items-center justify-center bg-stone-950/45 rounded-[5px] backdrop-blur-[0.5px]">
@@ -1975,8 +1898,12 @@ export default function DiceRoller() {
                   }}
                 />
 
-                {/* 3D Cube Core */}
-                <div 
+                {/* 3D die — drawn by the dice3d canvas engine: a real
+                    polyhedron per die type (d4/d6/d8/d10/d12/d20/d100),
+                    projected with true perspective. Rotation is drawn
+                    inside the canvas each animation frame; this wrapper
+                    only positions and scales it. */}
+                <div
                   id={`vtt-global-d6-${die.id}`}
                   className={`fixed w-10 h-10 cursor-grab active:cursor-grabbing select-none touch-none animate-fade-in ${hoverGlow} ${menuBackdropActive ? 'pointer-events-none' : 'pointer-events-auto'}`}
                   style={{
@@ -1984,8 +1911,6 @@ export default function DiceRoller() {
                     top: `${coords.y}px`,
                     marginLeft: '-20px',
                     marginTop: '-20px',
-                    transformStyle: 'preserve-3d',
-                    perspective: '300px',
                     zIndex: getActiveDiceZIndex(menuBackdropActive),
                   }}
                   onPointerDown={handlePointerDown}
@@ -1993,60 +1918,13 @@ export default function DiceRoller() {
                   onPointerUp={handlePointerUp}
                   onPointerCancel={handlePointerUp}
                 >
-                  {/* FACE 1 */}
-                  <div 
-                    className="absolute inset-0 flex items-center justify-center select-none"
-                    style={{ transform: 'rotateY(0deg) translateZ(19.8px)', backfaceVisibility: 'hidden', borderRadius: '6px' }}
-                  >
-                    {renderDieFaceSVG(diceTheme, isDieSelected, 1)}
-                    {renderTallyBadge}
-                  </div>
-
-                  {/* FACE 6 */}
-                  <div 
-                    className="absolute inset-0 flex items-center justify-center select-none"
-                    style={{ transform: 'rotateY(180deg) translateZ(19.8px)', backfaceVisibility: 'hidden', borderRadius: '6px' }}
-                  >
-                    {renderDieFaceSVG(diceTheme, isDieSelected, 6)}
-                    {renderTallyBadge}
-                  </div>
-
-                  {/* FACE 2 */}
-                  <div 
-                    className="absolute inset-0 flex items-center justify-center select-none"
-                    style={{ transform: 'rotateY(90deg) translateZ(19.8px)', backfaceVisibility: 'hidden', borderRadius: '6px' }}
-                  >
-                    {renderDieFaceSVG(diceTheme, isDieSelected, 2)}
-                    {renderTallyBadge}
-                  </div>
-
-                  {/* FACE 5 */}
-                  <div 
-                    className="absolute inset-0 flex items-center justify-center select-none"
-                    style={{ transform: 'rotateY(-90deg) translateZ(19.8px)', backfaceVisibility: 'hidden', borderRadius: '6px' }}
-                  >
-                    {renderDieFaceSVG(diceTheme, isDieSelected, 5)}
-                    {renderTallyBadge}
-                  </div>
-
-                  {/* FACE 3 */}
-                  <div 
-                    className="absolute inset-0 flex items-center justify-center select-none"
-                    style={{ transform: 'rotateX(-90deg) translateZ(19.8px)', backfaceVisibility: 'hidden', borderRadius: '6px' }}
-                  >
-                    {renderDieFaceSVG(diceTheme, isDieSelected, 3)}
-                    {renderTallyBadge}
-                  </div>
-
-                  {/* FACE 4 */}
-                  <div 
-                    className="absolute inset-0 flex items-center justify-center select-none"
-                    style={{ transform: 'rotateX(90deg) translateZ(19.8px)', backfaceVisibility: 'hidden', borderRadius: '6px' }}
-                  >
-                    {renderDieFaceSVG(diceTheme, isDieSelected, 4)}
-                    {renderTallyBadge}
-                  </div>
-
+                  <canvas
+                    id={`vtt-die-canvas-${die.id}`}
+                    width={160}
+                    height={160}
+                    className="absolute inset-0 h-full w-full select-none"
+                  />
+                  {renderTallyBadge}
                 </div>
               </React.Fragment>
             );
@@ -2058,145 +1936,3 @@ export default function DiceRoller() {
   );
 }
 
-// Solid design faces with NO transparency and NO dots/numbers
-function renderDieFaceSVG(themeKey: string, isSelected: boolean, faceValue: number) {
-  let dieFill = 'url(#grad-active-amber)';
-  let stroke = 'stroke-amber-400';
-  let isEmerald = false;
-  let isCosmos = false;
-  let isWater = false;
-  let isDiamond = false;
-  let isMagma = false;
-
-  let numberColor = '#fef08a';
-  let shadowColor = '#7c2d12';
-
-  if (themeKey === 'amber') {
-    dieFill = 'url(#grad-active-amber)';
-    stroke = 'stroke-amber-450';
-    isMagma = true;
-    numberColor = '#fef08a';
-    shadowColor = '#450a0a';
-  } else if (themeKey === 'celestial') {
-    dieFill = 'url(#grad-active-celestial)';
-    stroke = 'stroke-cyan-300';
-    isCosmos = true;
-    numberColor = '#ecfeff';
-    shadowColor = '#1e1b4b';
-  } else if (themeKey === 'abyssal') {
-    dieFill = 'url(#grad-active-water)';
-    stroke = 'stroke-sky-400';
-    isWater = true;
-    numberColor = '#e0f2fe';
-    shadowColor = '#0f172a';
-  } else if (themeKey === 'ruby') {
-    dieFill = 'url(#grad-active-ruby)';
-    stroke = 'stroke-red-350';
-    isDiamond = true;
-    numberColor = '#ffe4e6';
-    shadowColor = '#4c0519';
-  } else if (themeKey === 'emerald') {
-    dieFill = 'url(#grad-active-emerald)';
-    stroke = 'stroke-emerald-300';
-    isEmerald = true;
-    numberColor = '#d1fae5';
-    shadowColor = '#064e3b';
-  } else {
-    dieFill = 'url(#grad-active-amber)';
-    stroke = 'stroke-amber-450';
-    isMagma = true;
-    numberColor = '#fef08a';
-    shadowColor = '#450a0a';
-  }
-
-  return (
-    <svg viewBox="0 0 100 100" className="w-full h-full absolute inset-0 select-none">
-      {/* Rounded square face boundary with NO transparency */}
-      <rect 
-        x="2" 
-        y="2" 
-        width="96" 
-        height="96" 
-        rx="14" 
-        ry="14" 
-        fill={dieFill} 
-        className={`${isSelected ? 'stroke-red-500' : stroke} ${isSelected ? 'stroke-[6px]' : 'stroke-[3px]'}`} 
-      />
-      <rect x="5" y="5" width="90" height="90" rx="11" ry="11" fill="none" stroke="white" strokeWidth="1" strokeOpacity="0.15" />
-
-      {/* Internal Aesthetics - strictly NO dots, marks, or numbers */}
-      {isMagma && (
-        <>
-          <path d="M 12 40 L 30 50 L 50 35 L 70 60 L 88 45" stroke="#f59e0b" strokeWidth="3.5" fill="none" opacity="0.85" strokeLinecap="round" />
-          <path d="M 40 12 L 50 35 L 45 75 L 25 85" stroke="#ef4444" strokeWidth="3.5" fill="none" opacity="0.8" strokeLinecap="round" />
-          <path d="M 70 60 L 65 88" stroke="#f97316" strokeWidth="2.5" fill="none" opacity="0.85" strokeLinecap="round" />
-          <circle cx="35" cy="45" r="10" fill="#f59e0b" fillOpacity="0.3" filter="blur(2px)" />
-          <circle cx="65" cy="55" r="12" fill="#ef4444" fillOpacity="0.3" filter="blur(2px)" />
-        </>
-      )}
-
-      {isCosmos && (
-        <>
-          <path d="M 20,50 A 30,30 0 1,1 80,50 A 25,25 0 1,1 25,50 A 20,20 0 1,1 75,50 A 15,15 0 1,1 35,50" fill="none" stroke="#22d3ee" strokeWidth="2" strokeDasharray="3,3" opacity="0.7" />
-          <circle cx="50" cy="50" r="15" fill="#818cf8" fillOpacity="0.4" filter="blur(3px)" />
-          <polygon points="53,20 55,27 62,29 55,31 53,38 51,31 44,29 51,27" fill="#fff" opacity="0.95" />
-          <polygon points="45,72 47,77 52,79 47,81 45,86 43,81 38,79 43,77" fill="#22d3ee" opacity="0.95" />
-        </>
-      )}
-
-      {isWater && (
-        <>
-          <path d="M 8 30 C 30 20, 40 40, 60 25 C 80 10, 85 30, 92 20" fill="none" stroke="#38bdf8" strokeWidth="3" opacity="0.75" strokeLinecap="round" />
-          <path d="M 8 50 C 25 40, 45 60, 65 45 C 75 35, 85 55, 92 45" fill="none" stroke="#0ea5e9" strokeWidth="3.5" opacity="0.85" strokeLinecap="round" />
-          <path d="M 8 70 C 25 60, 35 80, 55 65 C 75 50, 85 75, 92 65" fill="none" stroke="#1d4ed8" strokeWidth="3" opacity="0.7" strokeDasharray="4,2" strokeLinecap="round" />
-          <circle cx="50" cy="50" r="16" fill="#38bdf8" fillOpacity="0.35" filter="blur(3px)" />
-        </>
-      )}
-
-      {isDiamond && (
-        <>
-          <path d="M 8 8 L 50 50 L 92 8 Z" fill="white" fillOpacity="0.15" />
-          <path d="M 92 8 L 50 50 L 92 92 Z" fill="black" fillOpacity="0.2" />
-          <path d="M 92 92 L 50 50 L 8 92 Z" fill="white" fillOpacity="0.2" />
-          <path d="M 8 92 L 50 50 L 8 8 Z" fill="black" fillOpacity="0.28" />
-          <line x1="8" y1="8" x2="92" y2="92" stroke="#fff" strokeWidth="2.5" strokeOpacity="0.5" strokeLinecap="round" />
-          <line x1="92" y1="8" x2="8" y2="92" stroke="#fff" strokeWidth="2.5" strokeOpacity="0.5" strokeLinecap="round" />
-          <line x1="50" y1="8" x2="50" y2="92" stroke="#fff" strokeWidth="2" strokeOpacity="0.4" strokeLinecap="round" />
-          <line x1="8" y1="50" x2="92" y2="50" stroke="#fff" strokeWidth="2" strokeOpacity="0.4" strokeLinecap="round" />
-          <circle cx="50" cy="50" r="12" fill="#fecdd3" fillOpacity="0.4" filter="blur(2px)" />
-        </>
-      )}
-
-      {isEmerald && (
-        <>
-          <path d="M 50 12 L 88 34 L 88 78 L 50 88 L 12 78 L 12 34 Z" fill="none" stroke="#10b981" strokeWidth="2.5" strokeOpacity="0.85" strokeLinejoin="round" />
-          <line x1="50" y1="12" x2="50" y2="88" stroke="#34d399" strokeWidth="2" strokeOpacity="0.45" />
-          <line x1="12" y1="34" x2="88" y2="78" stroke="#34d399" strokeWidth="2" strokeOpacity="0.45" />
-          <line x1="12" y1="78" x2="88" y2="34" stroke="#34d399" strokeWidth="2" strokeOpacity="0.45" />
-          <circle cx="50" cy="50" r="14" fill="#a7f3d0" fillOpacity="0.35" filter="blur(2.5px)" />
-        </>
-      )}
-
-      {/* High-fidelity complement-colored number overlay */}
-      <text 
-        x="50" 
-        y="58" 
-        textAnchor="middle" 
-        dominantBaseline="middle" 
-        className="font-serif font-black tracking-tight select-none pointer-events-none"
-        style={{
-          fontSize: '44px',
-          fill: numberColor,
-          filter: `drop-shadow(0px 2.5px 3.5px ${shadowColor})`,
-        }}
-      >
-        {faceValue}
-      </text>
-
-      {/* Selected overlay glow */}
-      {isSelected && (
-        <rect x="4" y="4" width="92" height="92" rx="12" ry="12" fill="none" stroke="#ef4444" strokeWidth="4" className="animate-pulse" />
-      )}
-    </svg>
-  );
-}
