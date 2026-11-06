@@ -28,5 +28,14 @@
   "current_stage": "database_reserved_not_live",
   "source_data_migrated": false,
   "docs": "AGENTS.md",
-  "canonical_map": "marcusdhaynes/somniel-holdings/database-routing.json"
+  "canonical_map": "marcusdhaynes/somniel-holdings/database-routing.json",
+  "domain_storage_guidance": {
+    "store": [
+      "Authorized game profiles, campaigns, character sheets, world state and progress for cross-device play"
+    ],
+    "avoid": [
+      "Per-frame input events, untrusted client administration claims, user secrets"
+    ],
+    "cutover": "Preserve current Firebase-backed game data, identity and offline behavior until complete import and testing."
+  }
 }
