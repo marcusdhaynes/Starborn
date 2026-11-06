@@ -160,7 +160,7 @@ function BowedInPanel({ children, style, className = "" }: PanelProps) {
 }
 
 export default function AbilitiesSections() {
-  const [isThrown, setIsThrown] = useState(() => safeStorage.getItem('tabletop_is_thrown') === 'true');
+  const [isThrown, setIsThrown] = useState(() => safeStorage.getItem('tabletop_is_thrown') !== 'false');
   const [bgOpacity, setBgOpacity] = useState(() => {
     const saved = safeStorage.getItem('tabletop_app_opacity');
     return saved ? parseInt(saved, 10) : 100;
@@ -172,7 +172,7 @@ export default function AbilitiesSections() {
 
   useEffect(() => {
     const handleUpdate = () => {
-      setIsThrown(safeStorage.getItem('tabletop_is_thrown') === 'true');
+      setIsThrown(safeStorage.getItem('tabletop_is_thrown') !== 'false');
       const opacitySaved = safeStorage.getItem('tabletop_app_opacity');
       setBgOpacity(opacitySaved ? parseInt(opacitySaved, 10) : 100);
       const savedOrientation = safeStorage.getItem('setting_layout_orientation') as 'vertical' | 'horizontal';
