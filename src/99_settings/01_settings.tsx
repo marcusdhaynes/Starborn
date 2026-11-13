@@ -12,6 +12,7 @@ import VisualsSettings from './02_visuals';
 import GameplaySettings from './03_gameplay';
 import BackendSettings from './04_backend';
 import { useTranslation, arDict } from './language';
+import { UpdatesSection } from '../updates/UpdatesSection';
 
 // Import Firebase Client and Auth helpers
 import { auth, db } from '../firebase';
@@ -436,7 +437,7 @@ export default function SettingsWindow({ onClose, playTick, initialTab, autostar
 
         </div>
 
-
+        <div className="px-3 pb-3 shrink-0"><UpdatesSection /></div>
 
       </motion.div>
 

@@ -17,6 +17,7 @@ import SettingsWindow from './99_settings/01_settings';
 import { useTranslation } from './99_settings/language';
 import CharacterCodexModal from './components/CharacterCodexModal';
 import GameSyncRoot from './04_sync/GameSyncRoot'; // Game Sync (GM + players, real-time) — START-OF-SYNC-INTEGRATION, 2 lines total
+import { UpdateBanner } from './updates/UpdateBanner';
 
 export default function App() {
   const { lang } = useTranslation();
@@ -582,6 +583,7 @@ export default function App() {
     <div dir={lang === 'ar' ? 'rtl' : 'ltr'} className={`min-h-screen relative overflow-hidden transition-all duration-[1500ms] ${
       isMaxThreat ? "grayscale" : ""
     }`}>
+      <UpdateBanner />
       <div className="cosmic-bg" />
       
       {/* Stellar yellow-and-green radial ripples */}
